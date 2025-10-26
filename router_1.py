@@ -101,19 +101,19 @@ def menu_evento(datagrama,timeout = 5):
     t.start()
     t.join(timeout)
 
-    if escolha[0] is None:
+    if not escolha[0]:
         print("\nTempo esgotado - Pacote enviado Normalmente.\n")
         ROUTER_EVENT = "TRANSPARENCIA"
     else:
-        op = escolha[0]
+        op = escolha[0].strip()
         if op == '1':
-            new_event = "TRANSPARENCIA"
+            ROUTER_EVENT = "TRANSPARENCIA"
         elif op == '2':   
-            new_event = "CORROMPER"
+            ROUTER_EVENT = "CORROMPER"
         elif op == '3':
-            new_event = "ATRASAR"
+            ROUTER_EVENT = "ATRASAR"
         elif op == '4':
-            new_event = "DESCARTAR"  
+            ROUTER_EVENT = "DESCARTAR"  
         else:
             print("Opção inválida. Tente novamente.")
             ROUTER_EVENT = "TRANSPARENCIA"
