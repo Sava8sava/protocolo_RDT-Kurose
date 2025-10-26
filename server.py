@@ -7,7 +7,7 @@ from collections import deque
 
 #variaveis globais
 WINDOW_SIZE = 5
-TIMEOUT = 20.0
+TIMEOUT = 40.0
 MAX_SEQ_NUM = 16
 HASH_LEN = 16
 base = 0
@@ -17,6 +17,11 @@ timer = None
 send_window = {}
 router_addr = None
 servidor_rodando = True
+
+# --- NOVAS GLOBAIS PARA FAST RETRANSMIT ---
+duplicate_ack_count = 0
+FAST_RETRANSMIT_THRESHOLD = 3
+# ----------------------------------------
 
 def calcular_md5(data: bytes) -> bytes:
     return hashlib.md5(data).digest()
@@ -64,7 +69,7 @@ def reenviar_janela(sock):
 
 # THREAD DE RECEBIMENTO DE ACKs
 def receber_acks(sock):
-    global base, timer, send_window, router_addr, servidor_rodando
+    global base, timer, send_window, router_addr, servidor_rodando, duplicate_ack_count
     
     while servidor_rodando:
         try:
@@ -73,7 +78,6 @@ def receber_acks(sock):
             if not servidor_rodando:
                 break
                 
-
             # Eu preciso checar a corrupção de duas formas:
             # 1. O tipo é um byte ASCII válido?
             # 2. O hash MD5 bate?
@@ -101,27 +105,75 @@ def receber_acks(sock):
                 print(f"[PACOTE IGNORADO] Nao e um ACK (Tipo={ack_tipo}, Seq={ack_seq}).")
                 continue
             
+            # ==========================================================
+            # INÍCIO DA LÓGICA CORRIGIDA (WRAP-AROUND)
+            # ==========================================================
             with lock:
-                if in_window(ack_seq):
-                    print(f"[ACK RECEBIDO] seq={ack_seq}")
-                    new_base = (ack_seq + 1) % MAX_SEQ_NUM
+                
+                # 1. Checa se é um ACK duplicado
+                if ack_seq == base:
+                    # --- ACK DUPLICADO ---
+                    duplicate_ack_count += 1
+                    print(f"[ACK DUPLICADO] Recebido ACK {ack_seq} (base={base}). Contagem = {duplicate_ack_count}")
+                    
+                    if duplicate_ack_count >= FAST_RETRANSMIT_THRESHOLD:
+                        print(f"!!! [FAST RETRANSMIT] Limite atingido. Reenviando pacote {base}...")
+                        if base in send_window:
+                            sock.sendto(send_window[base], router_addr)
+                        else:
+                            print(f"[FAST RETRANSMIT] Erro: Pacote {base} não está na janela.")
+                        
+                        if timer: timer.cancel()
+                        if send_window:
+                            timer = threading.Timer(TIMEOUT, reenviar_janela, args=(sock,))
+                            timer.start()
+                        duplicate_ack_count = 0
+                    continue # Importante: não continua para a próxima verificação
+
+                # 2. Checa se é um ACK Novo (cumulativo)
+                # Esta lógica calcula se o ack_seq está "à frente" da base,
+                # lidando com o wrap-around (ex: base=15, ack_seq=0)
+                is_new = False
+                if base < next_seq_num: # Caso normal (ex: base=5, next=8)
+                    is_new = ack_seq > base and ack_seq <= next_seq_num
+                elif base > next_seq_num: # Caso de wrap-around (ex: base=14, next=2)
+                    # O ACK é novo se for > 14 OU <= 2
+                    is_new = ack_seq > base or ack_seq <= next_seq_num
+                elif base == next_seq_num and len(send_window) > 0: # Caso do FIN (base=0, next=0, mas janela=1)
+                    # Este é o caso do bug do FIN que corrigimos.
+                    # O next_seq_num esperado é (base+1)
+                    if ack_seq == (base + 1) % MAX_SEQ_NUM:
+                        is_new = True
+                
+                if is_new:
+                    # --- NOVO ACK CUMULATIVO ---
+                    print(f"[ACK RECEBIDO] seq={ack_seq}. Base avançando de {base} para {ack_seq}")
+                    
+                    # CORREÇÃO: A nova base é o próprio ack_seq
+                    new_base = ack_seq 
+                    
                     while base != new_base:
                         if base in send_window:
                             del send_window[base]
                         base = (base + 1) % MAX_SEQ_NUM
                     
-                    if not send_window:
-                        if timer:
-                            timer.cancel()
-                        print("[INFO] Todos pacotes confirmados (janela vazia).")
-                    else:
-                        if timer:
-                            timer.cancel()
+                    # Resetar a contagem de ACKs duplicados
+                    duplicate_ack_count = 0
+                    
+                    # Reiniciar o timer
+                    if timer: timer.cancel()
+                    if send_window:
                         timer = threading.Timer(TIMEOUT, reenviar_janela, args=(sock,))
                         timer.start()
-                        print(f"[JANELA] Base avancou para {base}")
-                else:
+                
+                else: 
+                    # --- ACK ANTIGO ---
+                    # Se não é duplicado e não é novo, é antigo.
                     print(f"[ACK ANTIGO] Ignorando ACK {ack_seq} (base={base})")
+            
+            # ==========================================================
+            # FIM DA LÓGICA CORRIGIDA
+            # ==========================================================
 
         # ou bugs de programação inesperados
         except Exception as e:
@@ -134,7 +186,7 @@ def receber_acks(sock):
 
 # PROGRAMA PRINCIPAL (SERVIDOR)
 if __name__ == "__main__":
-    SERVER_IP = "192.168.18.253" 
+    SERVER_IP = "192.168.18.253"
     SERVER_PORT = 9000
     CLIENT_IP = input("Digite o IP do cliente (ex: 127.0.0.1): ")
     CLIENT_PORT = int(input("Digite a porta do cliente (ex: 5000): "))
@@ -224,6 +276,12 @@ if __name__ == "__main__":
         send_window[fin_seq_num] = fin_pacote
         server_socket.sendto(fin_pacote, router_addr)
         print(f"[ENVIANDO] Pacote de finalização (seq={fin_seq_num})")
+        
+        # <<< CORREÇÃO DO BUG DO FIN >>>
+        # Incrementa o next_seq_num para que o 'ACK 1' (do FIN 0) seja
+        # reconhecido como novo.
+        next_seq_num = (next_seq_num + 1) % MAX_SEQ_NUM
+        
         if timer:
             timer.cancel()
         timer = threading.Timer(TIMEOUT, reenviar_janela, args=(server_socket,))
