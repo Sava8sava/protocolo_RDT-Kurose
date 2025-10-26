@@ -18,10 +18,10 @@ send_window = {}
 router_addr = None
 servidor_rodando = True
 
-# --- NOVAS GLOBAIS PARA FAST RETRANSMIT ---
+# variaveis para a retransmissão rápida
 duplicate_ack_count = 0
 FAST_RETRANSMIT_THRESHOLD = 3
-# ----------------------------------------
+
 
 def calcular_md5(data: bytes) -> bytes:
     return hashlib.md5(data).digest()
@@ -104,10 +104,7 @@ def receber_acks(sock):
                 # É um pacote válido, mas não é um ACK
                 print(f"[PACOTE IGNORADO] Nao e um ACK (Tipo={ack_tipo}, Seq={ack_seq}).")
                 continue
-            
-            # ==========================================================
-            # INÍCIO DA LÓGICA CORRIGIDA (WRAP-AROUND)
-            # ==========================================================
+
             with lock:
                 
                 # 1. Checa se é um ACK duplicado
@@ -132,7 +129,7 @@ def receber_acks(sock):
 
                 # 2. Checa se é um ACK Novo (cumulativo)
                 # Esta lógica calcula se o ack_seq está "à frente" da base,
-                # lidando com o wrap-around (ex: base=15, ack_seq=0)
+
                 is_new = False
                 if base < next_seq_num: # Caso normal (ex: base=5, next=8)
                     is_new = ack_seq > base and ack_seq <= next_seq_num
@@ -140,13 +137,12 @@ def receber_acks(sock):
                     # O ACK é novo se for > 14 OU <= 2
                     is_new = ack_seq > base or ack_seq <= next_seq_num
                 elif base == next_seq_num and len(send_window) > 0: # Caso do FIN (base=0, next=0, mas janela=1)
-                    # Este é o caso do bug do FIN que corrigimos.
                     # O next_seq_num esperado é (base+1)
                     if ack_seq == (base + 1) % MAX_SEQ_NUM:
                         is_new = True
                 
                 if is_new:
-                    # --- NOVO ACK CUMULATIVO ---
+                    #NOVO ACK CUMULATIVO
                     print(f"[ACK RECEBIDO] seq={ack_seq}. Base avançando de {base} para {ack_seq}")
                     
                     # CORREÇÃO: A nova base é o próprio ack_seq
@@ -167,14 +163,10 @@ def receber_acks(sock):
                         timer.start()
                 
                 else: 
-                    # --- ACK ANTIGO ---
+                    #ACK ANTIGO
                     # Se não é duplicado e não é novo, é antigo.
                     print(f"[ACK ANTIGO] Ignorando ACK {ack_seq} (base={base})")
             
-            # ==========================================================
-            # FIM DA LÓGICA CORRIGIDA
-            # ==========================================================
-
         # ou bugs de programação inesperados
         except Exception as e:
             if servidor_rodando:
@@ -228,7 +220,7 @@ if __name__ == "__main__":
     ack_thread = threading.Thread(target=receber_acks, args=(server_socket,), daemon=True)
     ack_thread.start()
 
-    mensagens = [f"Este é o pacote de dados número {i}" for i in range(15)]
+    mensagens = [f"Este eh o pacote de dados numero {i}" for i in range(15)]
     pacotes_a_enviar = deque(mensagens) 
     print("Iniciando envio de pacotes de dados...")
 
@@ -277,7 +269,6 @@ if __name__ == "__main__":
         server_socket.sendto(fin_pacote, router_addr)
         print(f"[ENVIANDO] Pacote de finalização (seq={fin_seq_num})")
         
-        # <<< CORREÇÃO DO BUG DO FIN >>>
         # Incrementa o next_seq_num para que o 'ACK 1' (do FIN 0) seja
         # reconhecido como novo.
         next_seq_num = (next_seq_num + 1) % MAX_SEQ_NUM
