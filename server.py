@@ -5,9 +5,9 @@ import threading
 import time
 from collections import deque
 
-#constantes globais
+#variaveis globais
 WINDOW_SIZE = 5
-TIMEOUT = 40.0
+TIMEOUT = 20.0
 MAX_SEQ_NUM = 16
 HASH_LEN = 16
 base = 0
@@ -16,9 +16,6 @@ lock = threading.Lock()
 timer = None
 send_window = {}
 router_addr = None
-
-
-# Flag para controlar a thread de ACKs
 servidor_rodando = True
 
 def calcular_md5(data: bytes) -> bytes:
@@ -51,7 +48,6 @@ def in_window(seq):
 def reenviar_janela(sock):
     global timer, router_addr
     with lock:
-        # Só reenvio se o servidor ainda estiver rodando
         if not servidor_rodando:
             return
             
@@ -65,8 +61,8 @@ def reenviar_janela(sock):
             timer = threading.Timer(TIMEOUT, reenviar_janela, args=(sock,))
             timer.start()
 
-# THREAD DE RECEBIMENTO DE ACKs
 
+# THREAD DE RECEBIMENTO DE ACKs
 def receber_acks(sock):
     global base, timer, send_window, router_addr, servidor_rodando
     
@@ -74,19 +70,35 @@ def receber_acks(sock):
         try:
             ack_data, addr = sock.recvfrom(1024)
             
-            # Se a flag mudou enquanto eu estava bloqueado no recvfrom, eu saio
             if not servidor_rodando:
                 break
                 
-            ack_seq = ack_data[0]
-            ack_tipo = ack_data[1:2].decode('ascii')
+
+            # Eu preciso checar a corrupção de duas formas:
+            # 1. O tipo é um byte ASCII válido?
+            # 2. O hash MD5 bate?
+
+            try:
+                # 1. Tentar decodificar o tipo
+                ack_tipo = ack_data[1:2].decode('ascii')
+            except UnicodeDecodeError:
+                # Se o byte de 'tipo' for lixo (como 0xa5), é corrompido.
+                print(f"[PACOTE CORROMPIDO] Tipo de pacote invalido (nao-ASCII). Ignorando.")
+                continue # Pula este pacote e espera o próximo
+
+            # 2. Se o tipo é ASCII, checo o hash
             hash_recebido = ack_data[-HASH_LEN:]
             pacote_sem_hash = ack_data[:-HASH_LEN]
             if calcular_md5(pacote_sem_hash) != hash_recebido:
-                print(f"[ACK CORROMPIDO] Ignorando seq={ack_seq}")
-                continue
+                print(f"[PACOTE CORROMPIDO] Hash MD5 falhou. Ignorando.")
+                continue # Pula este pacote
+
+            # Se cheguei aqui, o pacote é válido e não-corrompido.
+            ack_seq = ack_data[0]
             
             if ack_tipo != 'A':
+                # É um pacote válido, mas não é um ACK
+                print(f"[PACOTE IGNORADO] Nao e um ACK (Tipo={ack_tipo}, Seq={ack_seq}).")
                 continue
             
             with lock:
@@ -110,16 +122,15 @@ def receber_acks(sock):
                         print(f"[JANELA] Base avancou para {base}")
                 else:
                     print(f"[ACK ANTIGO] Ignorando ACK {ack_seq} (base={base})")
-        
+
+        # ou bugs de programação inesperados
         except Exception as e:
-            # <<< CORREÇÃO: Verifico a flag antes de imprimir o erro >>>
             if servidor_rodando:
-                # Se não era pra parar, é um erro real
-                print(f"[ERRO] Thread de ACK parou: {e}")
+                print(f"[ERRO] Thread de ACK parou inesperadamente: {e}")
             else:
-                # Se era pra parar, é só o socket fechando (esperado)
                 print(f"[INFO] Thread de ACK encerrando...")
             break # Sai do loop
+
 
 # PROGRAMA PRINCIPAL (SERVIDOR)
 if __name__ == "__main__":
@@ -161,7 +172,7 @@ if __name__ == "__main__":
         server_socket.close()
         exit()
 
-    # ETAPA 2: ENVIO DE DADOS 
+    # ETAPA 2: ENVIO DE DADOS
     ack_thread = threading.Thread(target=receber_acks, args=(server_socket,), daemon=True)
     ack_thread.start()
 
@@ -199,7 +210,6 @@ if __name__ == "__main__":
     if timer:
         timer.cancel() 
 
-
     # ETAPA 3: FINALIZAÇÃO (FIN) CONFIÁVEL
     print("Enviando pacote de finalização (FIN)...")
     fin_seq_num = next_seq_num
@@ -230,18 +240,8 @@ if __name__ == "__main__":
     if timer:
         timer.cancel()
     
-    
-    # 1. Sinalizo para a thread parar
     print("Sinalizando para a thread de ACKs parar...")
     servidor_rodando = False
-    
-    # 2. Fecho o socket. Isso vai "acordar" a thread que está
-    #    bloqueada no recvfrom(), causando uma exceção controlada.
     server_socket.close()
-    
-    # 3. Espero a thread realmente terminar (opcional, mas bom)
-    # ack_thread.join() # Se a thread não for daemon, eu usaria join
-    
-    # <<< FIM DA CORREÇÃO >>>
     
     print("Servidor encerrado.")
