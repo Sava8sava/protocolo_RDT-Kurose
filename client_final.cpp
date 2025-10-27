@@ -3,7 +3,6 @@
 #endif
 
 #define WIN32_LEAN_AND_MEAN
-// Comando para compilar (com seu path do vcpkg):
 // g++ client_final.cpp -o client.exe -IC:\Users\kauan\vcpkg\installed\x64-windows\include -LC:\Users\kauan\vcpkg\installed\x64-windows\lib -lws2_32 -lcrypto
 
 #include <winsock2.h>
@@ -14,28 +13,21 @@
 #include <string>
 #include <chrono>
 #include <openssl/md5.h>
-#include <openssl/evp.h> // Para a API moderna do MD5
+#include <openssl/evp.h> 
 #include <sstream>
 #include <iomanip>
-#include <thread> // Para o sleep
+#include <thread> 
 
 #pragma comment(lib, "Ws2_32.lib")
 #pragma comment(lib, "libcrypto.lib") // Para OpenSSL
 
-// ===========================
-// CONSTANTES (Como em Python)
-// ===========================
 const int N = 16;
-const int TIMEOUT_MS = 40000; // 1.0 segundo
+const int TIMEOUT_MS = 40000; 
 const int ATTEMPTS = 5;
 const int HASH_LEN = 16;
 const int RDT_HEADER_LEN = 14; // 1(seq) + 1(tipo) + 4(IP dest) + 2(porta dest) + 4(IP orig) + 2(porta orig)
 
-// ===========================
-// FUNÇÕES AUXILIARES
-// ===========================
 
-// Gera o hash MD5 binário (16 bytes)
 void md5_raw(const char *data, size_t len, unsigned char out[MD5_DIGEST_LENGTH]) {
     EVP_MD_CTX *mdctx;
     const EVP_MD *md;
@@ -48,7 +40,6 @@ void md5_raw(const char *data, size_t len, unsigned char out[MD5_DIGEST_LENGTH])
     EVP_MD_CTX_free(mdctx);
 }
 
-// Verifica a corrupção comparando o hash
 bool isCorrupted(char datagram[], int size)
 {
     if (size < HASH_LEN) return true;
@@ -60,7 +51,6 @@ bool isCorrupted(char datagram[], int size)
     return memcmp(receivedHash, calculatedHash, HASH_LEN) != 0;
 }
 
-// Monta o datagrama
 bool formDatagram(uint8_t *buf, size_t buf_len,
                              uint8_t seq, char type,
                              const char *dest_ip_str, uint16_t dest_port,
@@ -99,15 +89,12 @@ bool formDatagram(uint8_t *buf, size_t buf_len,
     return true;
 }
 
-// ===========================
-// CLASSE DE CONTROLE DE RECEPÇÃO
-// ===========================
 class TransmissionWindow{
     public:
     int expected;
     std::vector<std::string> appData;
     bool connected;
-    bool finished; // Flag para "FIN do servidor recebido"
+    bool finished; 
 
     TransmissionWindow() : expected(0), connected(false), finished(false) {}
 
@@ -119,49 +106,42 @@ class TransmissionWindow{
             {
                 connected = true;
                 expected = (seq + 1) % N;
-                std::cout << "[HANDSHAKE] Pacote tipo 'C' recebido. Esperado agora: " << expected << std::endl;
+                std::cout << "Pacote tipo 'C' recebido. Esperado agora: " << expected << std::endl;
                 return expected;
             }
             else
             {
-                std::cout << "[HANDSHAKE] 'C' duplicado recebido. Reenviando ACK " << (seq + 1) % N << "..." << std::endl;
-                return (seq + 1) % N; // Reenvia o ACK
+                std::cout << "'C' duplicado recebido. Reenviando ACK " << (seq + 1) % N << "..." << std::endl;
+                return (seq + 1) % N; 
             }
         }
-
-        // Não aceita mais pacotes 'D' se o 'F' já chegou
         else if (tipo == 'D' && connected && !finished)
         {
             if (seq == expected)
             {
-                std::cout << "[DADOS] Seq=" << seq << " | Mensagem='" << payload << "'" << std::endl;
+                std::cout << "Seq=" << seq << " | Mensagem='" << payload << "'" << std::endl;
                 appData.push_back(payload);
                 expected = (expected + 1) % N;
                 return expected;
             }
             else
             {
-                std::cout << "[FORA DE ORDEM] Esperado=" << expected << ", Recebido=" << seq << ". Ignorado." << std::endl;
-                // Reenvia o ACK anterior
+                std::cout << "Esperado=" << expected << ", Recebido=" << seq << ". Ignorado." << std::endl;
                 return expected;
             }
         }
 
         else if (tipo == 'F' && connected)
         {
-            // Se eu receber um FIN (mesmo que duplicado), eu mando um ACK
-            std::cout << "[FIM] Pacote tipo 'F' recebido. Enviando ACK." << std::endl;
-            finished = true; // Marco que o servidor quer fechar
-            return (seq + 1) % N; // Envia o ACK
+            std::cout << " Pacote tipo 'F' recebido. Enviando ACK." << std::endl;
+            finished = true; 
+            return (seq + 1) % N; 
         }
 
         return -1;
     }
 };
 
-// ===========================
-// PROGRAMA PRINCIPAL
-// ===========================
 int main()
 {
     WSADATA wsaData;
@@ -213,9 +193,9 @@ int main()
     std::string routerIP, destIP;
     int routerPort, destPort;
     
-    std::cout << "IP da rede intermediária (roteador): ";
+    std::cout << "IP da rede intermediaria (roteador): ";
     std::cin >> routerIP;
-    std::cout << "Porta da rede intermediária (roteador): ";
+    std::cout << "Porta da rede intermediaria (roteador): ";
     std::cin >> routerPort;
     std::cout << "IP do servidor destino: ";
     std::cin >> destIP;
@@ -230,7 +210,7 @@ int main()
     int seqIni;
     do
     {
-        std::cout << "Número de sequência inicial (0–15): ";
+        std::cout << "Numero de sequencia inicial (0–15): ";
         std::cin >> seqIni;
     } while(seqIni < 0 || seqIni > 15);
 
@@ -296,14 +276,12 @@ int main()
 
     if (!window.connected)
     {
-        std::cout << "Falha: não foi possível estabelecer conexão após múltiplas tentativas." << std::endl;
+        std::cout << "Nao foi possivel estabelecer conexao apos multiplas tentativas." << std::endl;
         closesocket(Sapi);
         WSACleanup();
         return 0;
     }
-
-    // === RECEBIMENTO DE DADOS ===
-    std::cout << "[ETAPA 2] Aguardando pacotes de dados...\n" << std::endl;
+    std::cout << "Aguardando pacotes de dados...\n" << std::endl;
 
     while (!window.finished)
     {
@@ -312,7 +290,7 @@ int main()
         if (res == SOCKET_ERROR)
         {
             if (WSAGetLastError() == WSAETIMEDOUT) {
-                std::cout << "[TIMEOUT] Esperando pacote. Nenhuma ação." << std::endl;
+                std::cout << "Esperando pacote" << std::endl;
                 continue;
             } else {
                 wprintf(L"Recvfrom falhou com erro %d\n", WSAGetLastError());
@@ -350,45 +328,30 @@ int main()
             std::cout << "[ACK] " << action << " enviado.\n" << std::endl;
         }
     }
-   
-    // ==========================================================
-    // ETAPA 3: ESTADO DE TIME_WAIT
-    // ==========================================================
-    
-    // O loop 'while' terminou, o que significa que window.finished = True
-    // O ACK para o FIN do servidor já foi enviado dentro do loop.
-    
-    std::cout << "\n[FIM] Conexão encerrada pelo servidor. Entrando em TIME_WAIT por "
+    std::cout << "\nConexao encerrada pelo servidor. Entrando em espera por "
               << (TIMEOUT_MS * 2) / 1000.0 << " seg." << std::endl;
-
-    // Mudo o timeout do socket para o tempo de TIME_WAIT
     DWORD timeout_wait = TIMEOUT_MS * 2;
     setsockopt(Sapi, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout_wait, sizeof(timeout_wait));
-
-    // Tento receber um pacote (esperando um FIN duplicado)
     res = recvfrom(Sapi, (char *)buffer, bufferlen, 0, (SOCKADDR *) &sendback, &sendbackSize);
 
     if (res == SOCKET_ERROR)
     {
         if (WSAGetLastError() == WSAETIMEDOUT) {
-            // Este é o caminho feliz!
-            std::cout << "[TIME_WAIT] Tempo esgotado. Nenhuma duplicata recebida. Fechando." << std::endl;
+            std::cout << "Tempo esgotado. Fechando" << std::endl;
         } else {
-            // Outro erro
-            wprintf(L"[TIME_WAIT] recvfrom falhou com erro %d\n", WSAGetLastError());
+            wprintf(L"recvfrom falhou com erro %d\n", WSAGetLastError());
         }
     }
     else if (res > 0)
     {
-        // Recebi algo. É um FIN duplicado?
         if (!isCorrupted((char*)buffer, res))
         {
             uint8_t seq = buffer[0];
             char type = (char)buffer[1];
 
             if (type == 'F') {
-                // É um FIN duplicado! Meu ACK se perdeu.
-                std::cout << "[TIME_WAIT] FIN duplicado recebido. Reenviando ACK final..." << std::endl;
+                // ACK perdido
+                std::cout << "Pacote tipo F duplicado recebido. Reenviando ACK final..." << std::endl;
                 
                 int action = (seq + 1) % N;
                 size_t ack_len;
