@@ -102,8 +102,7 @@ def menu_evento(datagrama,timeout = 5):
     t.join(timeout)
 
     if not escolha[0]:
-        print("\nTempo esgotado - Pacote enviado Normalmente.\n")
-        ROUTER_EVENT = "TRANSPARENCIA"
+        print("\nTempo esgotado - Pacote enviado.\n")
     else:
         op = escolha[0].strip()
         if op == '1':
@@ -116,7 +115,6 @@ def menu_evento(datagrama,timeout = 5):
             ROUTER_EVENT = "DESCARTAR"  
         else:
             print("Opção inválida. Tente novamente.")
-            ROUTER_EVENT = "TRANSPARENCIA"
     
     if os.name == 'nt':
         os.system('cls')
@@ -165,7 +163,7 @@ def router_main():
                 continue 
             
             elif current_event == "ATRASAR":
-                delay_time = 5 #segundos 
+                delay_time = 25 #segundos 
                 print(f"Router: Evento de erro -> Atrasando os pacotes em {delay_time}seg")
                 time.sleep(delay_time) 
             
