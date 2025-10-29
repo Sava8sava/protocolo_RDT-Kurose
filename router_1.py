@@ -75,54 +75,48 @@ def corrupt_field(data : bytes) -> bytes:
     print(f"\nRouter: Campo({chosen_field}) corrompido!!!")
     return data_corrupted
 
-def menu_evento(datagrama,timeout = 5):
+def menu_evento(datagrama):
     global ROUTER_EVENT
-
+    
     Num_seq = datagrama[0]
-    print("\n--- Menu de Eventos do Roteador ---")
-    print(f"Evento Atual: {ROUTER_EVENT}")
-    print(f"Numero de Seq do Pacote atual: {Num_seq}")
-    print("1. TRANSPARÊNCIA (Encaminhamento normal)")
-    print("2. CORROMPER UM CAMPO (Modifica 1 byte aleatório no payload)")
-    print("3. ATRASAR PACOTE (Atraso de 5 segundos)")
-    print("4. DESCARTAR PACOTE (Perda)")
-    print(f"A escolha tem um tempo Limite de {timeout} segundos\n")
-    
-    escolha = [""] 
+    pkt_type = datagrama[1]
+    origem_ip = socket.inet_ntoa(datagrama[8:12])
+    origem_porta = struct.unpack('!H', datagrama[12:14])[0]
 
-    def input_thread():
-        try:
-            escolha[0] = input("escolha o evento: ").strip() 
-        except EOFError:
-            pass 
-    
-    t = threading.Thread(target = input_thread)
-    t.daemon = True
-    t.start()
-    t.join(timeout)
+    while True: 
+        print("\n--- Menu de Eventos do Roteador ---")
+        print(f"Evento Atual: {ROUTER_EVENT}")
+        print(f"Numero de Seq do Pacote atual: {Num_seq}")
+        print(f"Tipo de pacote :{chr(pkt_type)}")
+        print(f"origem do pacote: {origem_ip}:{origem_porta}")
+        print("1. TRANSPARÊNCIA (Encaminhamento normal)")
+        print("2. CORROMPER UM CAMPO (Modifica 1 byte aleatório no payload)")
+        print("3. ATRASAR PACOTE (Atraso de 5 segundos)")
+        print("4. DESCARTAR PACOTE (Perda)")
+        print(f"escolha uma escolhação para aplicar ao pacote\n")
+        
+        escolha = input("Escolha o Evento: ").strip()
 
-    if not escolha[0]:
-
-        print("\nTempo esgotado - Pacote enviado Normalmente.\n")
-        print("\nTempo esgotado - Pacote enviado.\n")
-    else:
-        op = escolha[0].strip()
-        if op == '1':
+        if escolha == '1':
             ROUTER_EVENT = "TRANSPARENCIA"
-        elif op == '2':   
+            break 
+        elif escolha == '2':   
             ROUTER_EVENT = "CORROMPER"
-        elif op == '3':
+            break 
+        elif escolha == '3':
             ROUTER_EVENT = "ATRASAR"
-        elif op == '4':
-            ROUTER_EVENT = "DESCARTAR"  
+            break 
+        elif escolha == '4':
+            ROUTER_EVENT = "DESCARTAR" 
+            break 
         else:
             print("Opção inválida. Tente novamente.")
-    
-    if os.name == 'nt':
-        os.system('cls')
-    else:
-        os.system('clear')
-    print(f"Router: Evento selecionado ->{ROUTER_EVENT}\n")
+        
+        if os.name == 'nt':
+            os.system('cls')
+        else:
+            os.system('clear')
+        print(f"Router: Evento selecionado ->{ROUTER_EVENT}\n")
 
 
 def router_main():
@@ -156,16 +150,15 @@ def router_main():
             #cinema 
             final_destination = (destination_ip,destination_port)
             
-            menu_evento(data,timeout=5) 
+            menu_evento(data) 
             current_event = ROUTER_EVENT
         
             if current_event == "DESCARTAR":
                 print("Router: Evento de erro -> pacote Descartado")
-                EVENT_LOCK = False
                 continue 
             
             elif current_event == "ATRASAR":
-                delay_time = 25 #segundos 
+                delay_time = int(input("Quantos segundos deseja atrasar?: ")) #segundos 
                 print(f"Router: Evento de erro -> Atrasando os pacotes em {delay_time}seg")
                 time.sleep(delay_time) 
             
@@ -181,7 +174,7 @@ def router_main():
             
             origem_ip = socket.inet_ntoa(data[8:12])
             origem_porta = struct.unpack('!H', data[12:14])[0]
-            print(f"Router: Origem no cabeçalho -> {origem_ip}:{origem_porta}")
+            print(f"Router: Origem no cabeçal ho -> {origem_ip}:{origem_porta}")
             sock.sendto(data, final_destination)
             print(f"Router: Pacote encaminhado para {destination_ip}:{destination_port}")
 
