@@ -1,25 +1,55 @@
-#ifndef UNICODE
-#define UNICODE
+/*
+ * Cliente RDT 4.0 - Versão Multiplataforma
+ * 
+ * Compilação:
+ * Windows: g++ client_final.cpp -o client.exe -lws2_32 -lcrypto
+ * Linux/Unix: g++ client_final.cpp -o client -lcrypto
+ */
+
+#ifdef _WIN32
+    #ifndef UNICODE
+    #define UNICODE
+    #endif
+    #define WIN32_LEAN_AND_MEAN
+    #include <winsock2.h>
+    #include <Ws2tcpip.h>
+    #pragma comment(lib, "Ws2_32.lib")
+    #pragma comment(lib, "libcrypto.lib")
+    typedef SOCKET socket_t;
+    typedef SOCKADDR sockaddr_t;
+    typedef int socklen_t_compat;
+    #define CLOSE_SOCKET(s) closesocket(s)
+    #define GET_SOCKET_ERROR() WSAGetLastError()
+    #define SOCKET_WOULD_BLOCK WSAEWOULDBLOCK
+    #define SOCKET_TIMEOUT_ERROR WSAETIMEDOUT
+#else
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <unistd.h>
+    #include <errno.h>
+    typedef int socket_t;
+    typedef struct sockaddr sockaddr_t;
+    typedef socklen_t socklen_t_compat;
+    #define INVALID_SOCKET -1
+    #define SOCKET_ERROR -1
+    #define CLOSE_SOCKET(s) close(s)
+    #define GET_SOCKET_ERROR() errno
+    #define SOCKET_WOULD_BLOCK EWOULDBLOCK
+    #define SOCKET_TIMEOUT_ERROR EAGAIN
 #endif
 
-#define WIN32_LEAN_AND_MEAN
-// g++ client_final.cpp -o client.exe -IC:\Users\kauan\vcpkg\installed\x64-windows\include -LC:\Users\kauan\vcpkg\installed\x64-windows\lib -lws2_32 -lcrypto
-
-#include <winsock2.h>
-#include <Ws2tcpip.h>
 #include <stdio.h>
 #include <iostream>
 #include <vector>
 #include <string>
 #include <chrono>
 #include <openssl/md5.h>
-#include <openssl/evp.h> 
+#include <openssl/evp.h>
 #include <sstream>
 #include <iomanip>
-#include <thread> 
-
-#pragma comment(lib, "Ws2_32.lib")
-#pragma comment(lib, "libcrypto.lib") // Para OpenSSL
+#include <thread>
+#include <cstring>
 
 const int N = 16;
 const int TIMEOUT_MS = 40000; 
@@ -142,13 +172,42 @@ class TransmissionWindow{
     }
 };
 
+// Função para inicializar sockets por plataforma
+int init_sockets() {
+#ifdef _WIN32
+    WSADATA wsaData;
+    int res = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (res != NO_ERROR) {
+        printf("Erro ao iniciar WinSock\n");
+        return -1;
+    }
+#endif
+    return 0;
+}
+
+// Função para limpar sockets por plataforma
+void cleanup_sockets() {
+#ifdef _WIN32
+    WSACleanup();
+#endif
+}
+
+// Função para configurar timeout de socket multiplataforma
+int set_socket_timeout(socket_t sockfd, int timeout_ms) {
+#ifdef _WIN32
+    DWORD timeout = timeout_ms;
+    return setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
+#else
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    return setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+}
+
 int main()
 {
-    WSADATA wsaData;
-    int res = 0;
-    res = WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (res != NO_ERROR) {
-        wprintf(L"Erro ao iniciar WinSock\n");
+    if (init_sockets() != 0) {
         return 1;
     }
 
@@ -157,38 +216,48 @@ int main()
     std::cout << "Porta do cliente: ";
     std::cin >> clientPort;
 
-    SOCKET Sapi = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    socket_t Sapi = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (Sapi == INVALID_SOCKET) {
+        printf("Erro ao criar socket\n");
+        cleanup_sockets();
+        return 1;
+    }
 
     char clientIP[INET_ADDRSTRLEN];
     sockaddr_in fake{};
     fake.sin_family = AF_INET;
     fake.sin_port = htons(80);
     inet_pton(AF_INET, "8.8.8.8", &fake.sin_addr);
-    connect(Sapi, (sockaddr*)&fake, sizeof(fake));
+    connect(Sapi, (sockaddr_t*)&fake, sizeof(fake));
     sockaddr_in local{};
-    int len = sizeof(local);
-    getsockname(Sapi, (sockaddr*)&local, &len);
+    socklen_t_compat len = sizeof(local);
+    getsockname(Sapi, (sockaddr_t*)&local, &len);
     inet_ntop(AF_INET, &local.sin_addr, clientIP, sizeof(clientIP));
-    closesocket(Sapi); 
+    CLOSE_SOCKET(Sapi); 
     
     Sapi = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (Sapi == INVALID_SOCKET) {
+        printf("Erro ao criar socket\n");
+        cleanup_sockets();
+        return 1;
+    }
+    
     sockaddr_in clientaddr;
     clientaddr.sin_family = AF_INET;
     clientaddr.sin_port = htons(clientPort);
     inet_pton(AF_INET, clientIP, &clientaddr.sin_addr);
 
-    res = bind(Sapi,(SOCKADDR *) &clientaddr, sizeof(clientaddr));
+    int res = bind(Sapi, (sockaddr_t*)&clientaddr, sizeof(clientaddr));
     if (res == SOCKET_ERROR)
     {
-        wprintf(L"Bind falhou com erro %u\n", WSAGetLastError());
-        closesocket(Sapi);
-        WSACleanup();
+        printf("Bind falhou com erro %d\n", GET_SOCKET_ERROR());
+        CLOSE_SOCKET(Sapi);
+        cleanup_sockets();
         return 1;
     }
     std::cout << "Socket vinculado em " << clientIP << ":" << clientPort << "\n" << std::endl;
 
-    DWORD timeout = TIMEOUT_MS;
-    setsockopt(Sapi, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
+    set_socket_timeout(Sapi, TIMEOUT_MS);
 
     std::string routerIP, destIP;
     int routerPort, destPort;
@@ -233,13 +302,13 @@ int main()
 
     for (int attempt = 0; attempt < ATTEMPTS; attempt++)
     {
-        sendto(Sapi, (const char*)conn_packet, conn_packet_len, 0, (SOCKADDR *) &routerAddr, sizeof(routerAddr));
+        sendto(Sapi, (const char*)conn_packet, conn_packet_len, 0, (sockaddr_t*)&routerAddr, sizeof(routerAddr));
         std::cout << "Tentativa " << attempt + 1 << ": aguardando resposta do servidor..." << std::endl;
 
-        ssize_t bytes = recvfrom(Sapi, (char *)buffer, bufferlen - 1, 0, (SOCKADDR *) &sendback, &sendbackSize);
+        int bytes = recvfrom(Sapi, (char *)buffer, bufferlen - 1, 0, (sockaddr_t*)&sendback, (socklen_t_compat*)&sendbackSize);
 
         if (bytes < 0) {
-            if (WSAGetLastError() == WSAETIMEDOUT) {
+            if (GET_SOCKET_ERROR() == SOCKET_TIMEOUT_ERROR) {
                 std::cout << "Timeout." << std::endl;
                 if (attempt < ATTEMPTS - 1) { 
                      std::cout << "Aguardando 10 segundos antes de tentar novamente..." << std::endl;
@@ -265,7 +334,7 @@ int main()
         if (next_ack != -1) {
             size_t ack_len;
             formDatagram(buffer, bufferlen, next_ack, 'A', destIP.c_str(), destPort, clientIP, clientPort, nullptr, 0, ack_len);
-            sendto(Sapi, (const char*)buffer, ack_len, 0, (SOCKADDR *) &routerAddr, sizeof(routerAddr));
+            sendto(Sapi, (const char*)buffer, ack_len, 0, (sockaddr_t*)&routerAddr, sizeof(routerAddr));
             if (window.connected) {
                 std::cout << " Enviado ACK " << next_ack << ". Conexao estabelecida!\n" << std::endl;
                 break; 
@@ -276,23 +345,23 @@ int main()
     if (!window.connected)
     {
         std::cout << "Nao foi possivel estabelecer conexao apos multiplas tentativas." << std::endl;
-        closesocket(Sapi);
-        WSACleanup();
+        CLOSE_SOCKET(Sapi);
+        cleanup_sockets();
         return 0;
     }
     std::cout << "Aguardando pacotes de dados...\n" << std::endl;
 
     while (!window.finished)
     {
-        res = recvfrom(Sapi, (char *)buffer, bufferlen, 0, (SOCKADDR *) &sendback, &sendbackSize);
+        res = recvfrom(Sapi, (char *)buffer, bufferlen, 0, (sockaddr_t*)&sendback, (socklen_t_compat*)&sendbackSize);
 
         if (res == SOCKET_ERROR)
         {
-            if (WSAGetLastError() == WSAETIMEDOUT) {
+            if (GET_SOCKET_ERROR() == SOCKET_TIMEOUT_ERROR) {
                 std::cout << "Esperando pacote" << std::endl;
                 continue;
             } else {
-                wprintf(L"Recvfrom falhou com erro %d\n", WSAGetLastError());
+                printf("Recvfrom falhou com erro %d\n", GET_SOCKET_ERROR());
                 break;
             }
         }
@@ -317,7 +386,7 @@ int main()
         {
             size_t ack_len;
             formDatagram(buffer, bufferlen, action, 'A', destIP.c_str(), destPort, clientIP, clientPort, nullptr, 0, ack_len);
-            int sent = sendto(Sapi, (const char *)buffer, ack_len, 0, (SOCKADDR *) &routerAddr, sizeof(routerAddr));
+            int sent = sendto(Sapi, (const char *)buffer, ack_len, 0, (sockaddr_t*)&routerAddr, sizeof(routerAddr));
 
             if (sent < 0)
             {
@@ -329,16 +398,15 @@ int main()
     }
     std::cout << "\nConexao encerrada pelo servidor. Entrando em espera por "
               << (TIMEOUT_MS * 2) / 1000.0 << " seg." << std::endl;
-    DWORD timeout_wait = TIMEOUT_MS * 2;
-    setsockopt(Sapi, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout_wait, sizeof(timeout_wait));
-    res = recvfrom(Sapi, (char *)buffer, bufferlen, 0, (SOCKADDR *) &sendback, &sendbackSize);
+    set_socket_timeout(Sapi, TIMEOUT_MS * 2);
+    res = recvfrom(Sapi, (char *)buffer, bufferlen, 0, (sockaddr_t*)&sendback, (socklen_t_compat*)&sendbackSize);
 
     if (res == SOCKET_ERROR)
     {
-        if (WSAGetLastError() == WSAETIMEDOUT) {
+        if (GET_SOCKET_ERROR() == SOCKET_TIMEOUT_ERROR) {
             std::cout << "Tempo esgotado. Fechando" << std::endl;
         } else {
-            wprintf(L"recvfrom falhou com erro %d\n", WSAGetLastError());
+            printf("recvfrom falhou com erro %d\n", GET_SOCKET_ERROR());
         }
     }
     else if (res > 0)
@@ -354,19 +422,19 @@ int main()
                 int action = (seq + 1) % N;
                 size_t ack_len;
                 formDatagram(buffer, bufferlen, action, 'A', destIP.c_str(), destPort, clientIP, clientPort, nullptr, 0, ack_len);
-                sendto(Sapi, (const char *)buffer, ack_len, 0, (SOCKADDR *) &routerAddr, sizeof(routerAddr));
+                sendto(Sapi, (const char *)buffer, ack_len, 0, (sockaddr_t*)&routerAddr, sizeof(routerAddr));
                 std::cout << "[ACK] " << action << " reenviado." << std::endl;
             }
         }
     }
 
-    closesocket(Sapi);
+    CLOSE_SOCKET(Sapi);
     std::cout << "\nConexao finalizada. " << std::endl;
     std::cout << "Mensagens recebidas:" << std::endl;
     for (const auto& msg : window.appData) {
         std::cout << "- " << msg << std::endl;
     }
 
-    WSACleanup();
+    cleanup_sockets();
     return 0;
 }
