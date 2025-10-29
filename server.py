@@ -78,38 +78,35 @@ def receber_acks(sock):
             if not servidor_rodando:
                 break
                 
-            # Eu preciso checar a corrupção de duas formas:
-            # 1. O tipo é um byte ASCII válido?
-            # 2. O hash MD5 bate?
 
+            #verifiicar o byte ascii é valido
+            #verificar o hash5
             try:
-                # 1. Tentar decodificar o tipo
                 ack_tipo = ack_data[1:2].decode('ascii')
             except UnicodeDecodeError:
-                # Se o byte de 'tipo' for lixo (como 0xa5), é corrompido.
-                print(f"[PACOTE CORROMPIDO] Tipo de pacote invalido (nao-ASCII). Ignorando.")
-                continue # Pula este pacote e espera o próximo
 
-            # 2. Se o tipo é ASCII, checo o hash
+                print(f"[PACOTE CORROMPIDO] Tipo de pacote invalido (nao-ASCII). Ignorando.")
+                continue #ignora
+
+            #verificação do hash
             hash_recebido = ack_data[-HASH_LEN:]
             pacote_sem_hash = ack_data[:-HASH_LEN]
             if calcular_md5(pacote_sem_hash) != hash_recebido:
                 print(f"[PACOTE CORROMPIDO] Hash MD5 falhou. Ignorando.")
-                continue # Pula este pacote
+                continue #ignora
 
-            # Se cheguei aqui, o pacote é válido e não-corrompido.
+            #pacote válido
             ack_seq = ack_data[0]
             
             if ack_tipo != 'A':
-                # É um pacote válido, mas não é um ACK
+                #pacote nao é um ack
                 print(f"[PACOTE IGNORADO] Nao e um ACK (Tipo={ack_tipo}, Seq={ack_seq}).")
-                continue
+                continue #ignora
 
             with lock:
                 
-                # 1. Checa se é um ACK duplicado
+                #ACKs duplicados para retransmissão rápida
                 if ack_seq == base:
-                    # --- ACK DUPLICADO ---
                     duplicate_ack_count += 1
                     print(f"[ACK DUPLICADO] Recebido ACK {ack_seq} (base={base}). Contagem = {duplicate_ack_count}")
                     
@@ -125,16 +122,15 @@ def receber_acks(sock):
                             timer = threading.Timer(TIMEOUT, reenviar_janela, args=(sock,))
                             timer.start()
                         duplicate_ack_count = 0
-                    continue # Importante: não continua para a próxima verificação
+                    continue #não continua para a próxima verificação
 
-                # 2. Checa se é um ACK Novo (cumulativo)
-                # Esta lógica calcula se o ack_seq está "à frente" da base,
 
+                #verifica se ack_seq está "à frente" da base,
                 is_new = False
-                if base < next_seq_num: # Caso normal (ex: base=5, next=8)
+                if base < next_seq_num: #caso normal
                     is_new = ack_seq > base and ack_seq <= next_seq_num
                 elif base > next_seq_num: # Caso de wrap-around (ex: base=14, next=2)
-                    # O ACK é novo se for > 14 OU <= 2
+                    # se for > 14 OU <= 2
                     is_new = ack_seq > base or ack_seq <= next_seq_num
                 elif base == next_seq_num and len(send_window) > 0: # Caso do FIN (base=0, next=0, mas janela=1)
                     # O next_seq_num esperado é (base+1)
@@ -153,10 +149,10 @@ def receber_acks(sock):
                             del send_window[base]
                         base = (base + 1) % MAX_SEQ_NUM
                     
-                    # Resetar a contagem de ACKs duplicados
+                    #reseta a contagem de ACKs duplicados
                     duplicate_ack_count = 0
                     
-                    # Reiniciar o timer
+                    #reinicia o timer
                     if timer: timer.cancel()
                     if send_window:
                         timer = threading.Timer(TIMEOUT, reenviar_janela, args=(sock,))
@@ -167,7 +163,6 @@ def receber_acks(sock):
                     # Se não é duplicado e não é novo, é antigo.
                     print(f"[ACK ANTIGO] Ignorando ACK {ack_seq} (base={base})")
             
-        # ou bugs de programação inesperados
         except Exception as e:
             if servidor_rodando:
                 print(f"[ERRO] Thread de ACK parou inesperadamente: {e}")
@@ -178,7 +173,14 @@ def receber_acks(sock):
 
 # PROGRAMA PRINCIPAL (SERVIDOR)
 if __name__ == "__main__":
-    SERVER_IP = "192.168.18.253"
+    socket_test = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        socket_test.connect(("8.8.8.8", 80))
+        SERVER_IP = socket_test.getsockname()[0]
+    except Exception:
+        SERVER_IP = "127.0.0.1"
+    finally:
+        socket_test.close()
     SERVER_PORT = 9000
     CLIENT_IP = input("Digite o IP do cliente (ex: 127.0.0.1): ")
     CLIENT_PORT = int(input("Digite a porta do cliente (ex: 5000): "))

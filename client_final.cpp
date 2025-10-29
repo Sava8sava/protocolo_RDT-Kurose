@@ -185,7 +185,7 @@ int main()
         WSACleanup();
         return 1;
     }
-    std::cout << "[INFO] Socket vinculado em " << clientIP << ":" << clientPort << "\n" << std::endl;
+    std::cout << "Socket vinculado em " << clientIP << ":" << clientPort << "\n" << std::endl;
 
     DWORD timeout = TIMEOUT_MS;
     setsockopt(Sapi, SOL_SOCKET, SO_RCVTIMEO, (char*)&timeout, sizeof(timeout));
@@ -222,8 +222,7 @@ int main()
     
     TransmissionWindow window;
     
-    // === HANDSHAKE ===
-    std::cout << "\n[ETAPA 1] Enviando pacote de conexão tipo 'C'..." << std::endl;
+    std::cout << "\nEnviando pacote de conexão tipo 'C'..." << std::endl;
     uint8_t conn_packet[1024]; 
     size_t conn_packet_len;
     if (!formDatagram(conn_packet, 1024, seqIni, 'C', destIP.c_str(), destPort, clientIP, clientPort, nullptr, 0, conn_packet_len))
@@ -245,7 +244,7 @@ int main()
                 if (attempt < ATTEMPTS - 1) { 
                      std::cout << "Aguardando 10 segundos antes de tentar novamente..." << std::endl;
                      std::this_thread::sleep_for(std::chrono::seconds(10));
-                     std::cout << "Reenviando pacote de conexão.\n" << std::endl;
+                     std::cout << "Reenviando pacote de conexao.\n" << std::endl;
                 }
                 continue;
             } else {
@@ -255,7 +254,7 @@ int main()
         }
 
         if (isCorrupted((char*)buffer, bytes)) {
-            std::cout << "Pacote corrompido ou inválido. Ignorado.\n" << std::endl;
+            std::cout << "Pacote corrompido ou invalido. Ignorado.\n" << std::endl;
             continue;
         }
 
@@ -268,7 +267,7 @@ int main()
             formDatagram(buffer, bufferlen, next_ack, 'A', destIP.c_str(), destPort, clientIP, clientPort, nullptr, 0, ack_len);
             sendto(Sapi, (const char*)buffer, ack_len, 0, (SOCKADDR *) &routerAddr, sizeof(routerAddr));
             if (window.connected) {
-                std::cout << "[ACK] Enviado ACK " << next_ack << ". Conexão estabelecida!\n" << std::endl;
+                std::cout << " Enviado ACK " << next_ack << ". Conexao estabelecida!\n" << std::endl;
                 break; 
             }
         }
@@ -350,7 +349,6 @@ int main()
             char type = (char)buffer[1];
 
             if (type == 'F') {
-                // ACK perdido
                 std::cout << "Pacote tipo F duplicado recebido. Reenviando ACK final..." << std::endl;
                 
                 int action = (seq + 1) % N;
@@ -362,10 +360,8 @@ int main()
         }
     }
 
-
-    // === FIM ===
     closesocket(Sapi);
-    std::cout << "\n=== Conexão finalizada ===" << std::endl;
+    std::cout << "\nConexao finalizada. " << std::endl;
     std::cout << "Mensagens recebidas:" << std::endl;
     for (const auto& msg : window.appData) {
         std::cout << "- " << msg << std::endl;

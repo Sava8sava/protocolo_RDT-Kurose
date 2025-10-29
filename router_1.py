@@ -102,7 +102,9 @@ def menu_evento(datagrama,timeout = 5):
     t.join(timeout)
 
     if not escolha[0]:
+
         print("\nTempo esgotado - Pacote enviado Normalmente.\n")
+        print("\nTempo esgotado - Pacote enviado.\n")
     else:
         op = escolha[0].strip()
         if op == '1':
